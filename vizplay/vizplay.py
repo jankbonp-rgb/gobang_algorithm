@@ -55,13 +55,19 @@ HEADLESS = os.environ.get("VIZ_HEADLESS") == "1"
 STONE = {BLACK: "#111827", WHITE: "#f8fafc"}
 EDGE = {BLACK: "#374151", WHITE: "#94a3b8"}
 
-# 对外展示名(界面与面板都用;内部开发代号 rl2/rl2c 等一律不出现)
+# 对外展示名(界面与面板都用;内部开发代号一律不出现)
+def public_name(eng: str) -> str:
+    if eng in PUBLIC_NAMES:
+        return PUBLIC_NAMES[eng]
+    if eng.startswith("rl-") and eng.endswith("_pre"):
+        return f"RL1.0 历史轮 {eng[3:-4]}"     # rl-r32_pre → r32
+    return eng
+
+
 PUBLIC_NAMES = {
     "rl2v": "底片引擎·冠军版",
-    "rl2c": "底片引擎·冠军版",
-    "rl2": "底片引擎·冠军版",
-    "rl": "底片引擎·经典版",
-    "rl-rl1_last_max": "底片引擎·经典版(曾胜网页版)",
+    "rl": "RL1.0 实时参数",
+    "rl-rl1_last_max": "RL1.0 曾胜网页版·最强",
     "frontier": "对照·首端推理版",
     "layered": "对照·预测层版",
     "spec": "对照·忠实版",
@@ -111,8 +117,14 @@ def make_engine(kind: str, player: int, window: int = 9):
 
 
 def rl_versions():
-    """版本列表:仅曾胜网页版快照(公开版固定引擎,此函数只作兼容)。"""
+    """版本列表(对外名):[实时权重 + 曾胜最强 + 各轮快照(新→旧)],全蓝标家族。"""
     out = []
+    try:
+        d = json.loads(WEIGHTS.read_text(encoding="utf-8"))
+        n = len(d.get("geo_patches", []) or [])
+        out.append(("rl", f"RL1.0 实时参数 ({n}槽)"))
+    except Exception:
+        out.append(("rl", "RL1.0 实时参数"))
     seen = set()
     paths = list(CKPT.glob("r*_pre.json"))
     special = CKPT / "rl1_last_max.json"
@@ -133,14 +145,18 @@ def rl_versions():
         if sig in seen:
             continue
         seen.add(sig)
-        out.append((f"rl-{p.stem}", f"RL {p.stem} ({n}槽)"))
+        stem = p.stem
+        if stem == "rl1_last_max":
+            continue                       # 曾胜置顶统一插入
+        out.append((f"rl-{stem}", f"RL1.0 历史轮 {stem[:-4]}" if
+                    stem.endswith("_pre") else f"RL1.0 {stem}"))
     sp = CKPT / "rl1_last_max.json"
-    if sp.exists() and not any(v == "rl-rl1_last_max" for v, _n in out):
+    if sp.exists():
         try:
             d = json.loads(sp.read_text(encoding="utf-8"))
             n = len(d.get("geo_patches", []) or [])
             out.insert(1, ("rl-rl1_last_max",
-                           "BLUE曾胜网页版·RL1.0最强(20槽)"))
+                           f"RL1.0 曾胜网页版·最强 ({n}槽)"))
         except Exception:
             pass
     return out
@@ -295,8 +311,7 @@ class App:
             tk.Radiobutton(top, text=text, value=val, bg=BG, fg="#cbd5e1",
                            selectcolor="#1e293b", variable=self.var_mode,
                            command=self.reset).pack(side="left")
-        vers = [("rl2v", "★ 底片引擎·冠军版(最强·默认)"),
-                ("rl-rl1_last_max", "底片引擎·经典版(曾胜网页版)")]
+        vers = [("rl2v", "★ 底片引擎·冠军版(最强·默认)")] + rl_versions()
         names = [("frontier", "对照·首端推理版"),
                  ("layered", "对照·预测层版"),
                  ("spec", "对照·忠实版"),
@@ -394,19 +409,13 @@ class App:
 
     @staticmethod
     def _tint(sel, var):
-        """选中:黑=当前版(冠军线 v3.3) / 绿=测试版 / 蓝=曾胜网页版 / 默认。"""
+        """引擎标色:紫=冠军版;蓝=RL1.0 家族(实时/曾胜/历史轮);灰=对照。"""
         v = var.get()
         if v == "rl2v":
             sel.config(bg="#581c87", fg="#f3e8ff",
                        activebackground="#6d28d9",
                        activeforeground="#fff")
-        elif v == "rl2c":
-            sel.config(bg="#0b0f19", fg="#e2e8f0",
-                       activebackground="#111827", activeforeground="#fff")
-        elif v == "rl2":
-            sel.config(bg="#14532d", fg="#e2e8f0",
-                       activebackground="#166534")
-        elif v in ("rl", "rl-rl1_last_max"):
+        elif v == "rl" or v.startswith("rl-"):
             sel.config(bg="#1e3a8a", fg="#e2e8f0",
                        activebackground="#1d4ed8")
         else:
@@ -513,7 +522,7 @@ class App:
 
     def describe(self, view) -> str:
         eng = view["engine"]
-        name = PUBLIC_NAMES.get(eng, eng)
+        name = public_name(eng)
         if eng.startswith("rl"):
             n = len(view["films"])
             top = view["films"][:6]
