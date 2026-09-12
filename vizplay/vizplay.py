@@ -80,6 +80,7 @@ BG = "#0b1220"
 BOARD = "#f2e0b4"             # 棋盘米黄(木纹板)
 GRID = "#8a5a2b"              # 网格深棕(米黄板上)
 LAST = "#b45309"              # 最后一手标记(深橙,米黄板上醒目)
+MAX_COMPUTE = os.environ.get("VIZ_MAX") == "1"   # 算力拉满开关(GUI 可切换)
 
 
 def _dpi():
@@ -90,6 +91,11 @@ def _dpi():
             ctypes.windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
             pass
+
+
+def max_compute() -> bool:
+    """当前是否"算力拉满":GUI 开关(MAX_COMPUTE)或环境变量 VIZ_MAX=1。"""
+    return MAX_COMPUTE or os.environ.get("VIZ_MAX") == "1"
 
 
 def make_engine(kind: str, player: int, window: int = 9):
@@ -104,6 +110,22 @@ def make_engine(kind: str, player: int, window: int = 9):
         path = CKPT / f"{stem}.json"
         return RlAgent(player, weights_path=str(path))
     if kind == "rl":
+        if max_compute():
+            # 算力拉满:深推理 / 强制链 / 深叶 / 区域全部最大预算
+            return RlAgent(player, weights_path=str(WEIGHTS),
+                           deep_budget=int(os.environ.get("VIZ_MAX_DEEP",
+                                                          60000)),
+                           chain_depth=int(os.environ.get("VIZ_MAX_CHAIN_D",
+                                                          9)),
+                           chain_nodes=int(os.environ.get("VIZ_MAX_CHAIN",
+                                                          4000)),
+                           deep_leaf_H=int(os.environ.get("VIZ_MAX_LEAF_H", 9)),
+                           deep_leaf_nodes=int(
+                               os.environ.get("VIZ_MAX_LEAF", 30000)),
+                           leaf_topk=int(os.environ.get("VIZ_MAX_TOPK", 8)),
+                           region_cap=int(os.environ.get("VIZ_MAX_REGION", 16)),
+                           region_margin=float(
+                               os.environ.get("VIZ_MAX_MARGIN", 0.9)))
         if os.environ.get("VIZ_FAST") == "1":
             # 加速档(复现搜索用):压低深推预算,单步 ~2-5s
             return RlAgent(player, weights_path=str(WEIGHTS),
@@ -348,6 +370,11 @@ class App:
         tk.Checkbutton(top, text="显示思考范围", variable=self.var_show,
                        bg=BG, fg="#cbd5e1", selectcolor="#1e293b",
                        command=self.redraw).pack(side="left", padx=10)
+        self.var_max = tk.BooleanVar(value=MAX_COMPUTE)
+        tk.Checkbutton(top, text="算力拉满", variable=self.var_max,
+                       bg=BG, fg="#fbbf24", selectcolor="#1e293b",
+                       activebackground=BG, activeforeground="#fbbf24",
+                       command=self._apply_compute).pack(side="left", padx=6)
         tk.Button(top, text="走一步", command=self.step, bg="#2563eb",
                   fg="white", relief="flat").pack(side="left", padx=4)
         tk.Button(top, text="新对局", command=self.reset, bg="#475569",
@@ -436,6 +463,18 @@ class App:
                        activebackground="#334155")
 
     # ---- 对局 ----
+    def _apply_compute(self):
+        """切换算力档(只影响后续思考;预算在每次 make_engine 时读取)。"""
+        global MAX_COMPUTE
+        MAX_COMPUTE = bool(self.var_max.get())
+        if MAX_COMPUTE:
+            self.set_info("算力拉满已开启:\n"
+                          "  深推理 60000 节点 / 强制链 9-4000\n"
+                          "  深叶 9-30000×8 / 区域 16\n"
+                          "单步约慢 2~3 倍;点『走一步』继续。")
+        else:
+            self.set_info("已回到默认算力档。")
+
     def reset(self):
         self.board = Board()
         self.cur = BLACK
