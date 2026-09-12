@@ -316,26 +316,34 @@ class App:
                  ("layered", "对照·预测层版"),
                  ("spec", "对照·忠实版"),
                  ("boosted", "对照·增强版")]
+        # 下拉显示友好名,内部仍用引擎代号(互相映射;重名自动加序号)
+        self._kind_of: dict[str, str] = {}
+        self._label_of: dict[str, str] = {}
+        for kind, label in vers + names:
+            text, n = label, 2
+            while text in self._kind_of:
+                text = f"{label} #{n}"
+                n += 1
+            self._kind_of[text] = kind
+            self._label_of[kind] = text
         tk.Label(top, text="引擎A(黑):", bg=BG, fg="#94a3b8").pack(
             side="left", padx=(10, 0))
-        self.var_b = tk.StringVar(value="rl2v")
-        self.sel_b = tk.OptionMenu(top, self.var_b, *[v for v, _n in
-                                                      vers + names])
+        self.var_b = tk.StringVar(value=self._label_of["rl2v"])
+        self.sel_b = tk.OptionMenu(top, self.var_b, *self._kind_of.keys())
         self.sel_b.config(bg="#1e293b", fg="#e2e8f0", highlightthickness=0)
         self.sel_b.pack(side="left")
-        self.var_b.trace_add("write", lambda *_: self._tint(self.sel_b,
-                                                            self.var_b))
-        self._tint(self.sel_b, self.var_b)
+        self.var_b.trace_add("write", lambda *_: self._tint(
+            self.sel_b, self.var_b, self._kind(self.var_b)))
+        self._tint(self.sel_b, self.var_b, self._kind(self.var_b))
         tk.Label(top, text="引擎B(白):", bg=BG, fg="#94a3b8").pack(
             side="left", padx=(10, 0))
-        self.var_w = tk.StringVar(value="rl-rl1_last_max")
-        self.sel_w = tk.OptionMenu(top, self.var_w, *[v for v, _n in
-                                                      vers + names])
+        self.var_w = tk.StringVar(value=self._label_of["rl-rl1_last_max"])
+        self.sel_w = tk.OptionMenu(top, self.var_w, *self._kind_of.keys())
         self.sel_w.config(bg="#1e293b", fg="#e2e8f0", highlightthickness=0)
         self.sel_w.pack(side="left")
-        self.var_w.trace_add("write", lambda *_: self._tint(self.sel_w,
-                                                            self.var_w))
-        self._tint(self.sel_w, self.var_w)
+        self.var_w.trace_add("write", lambda *_: self._tint(
+            self.sel_w, self.var_w, self._kind(self.var_w)))
+        self._tint(self.sel_w, self.var_w, self._kind(self.var_w))
         self.var_show = tk.BooleanVar(value=True)
         tk.Checkbutton(top, text="显示思考范围", variable=self.var_show,
                        bg=BG, fg="#cbd5e1", selectcolor="#1e293b",
@@ -407,10 +415,15 @@ class App:
 
         self.root.after(40, go)            # 合并连续缩放事件
 
+    def _kind(self, var) -> str:
+        """下拉显示名 → 内部引擎代号。"""
+        text = var.get()
+        return self._kind_of.get(text, text)
+
     @staticmethod
-    def _tint(sel, var):
+    def _tint(sel, var, kind: str | None = None):
         """引擎标色:紫=冠军版;蓝=RL1.0 家族(实时/曾胜/历史轮);灰=对照。"""
-        v = var.get()
+        v = kind if kind is not None else var.get()
         if v == "rl2v":
             sel.config(bg="#581c87", fg="#f3e8ff",
                        activebackground="#6d28d9",
@@ -463,15 +476,15 @@ class App:
         if mode == "auto":
             if self.board.full():
                 return
-            kind = self.var_b.get() if self.cur == BLACK else \
-                self.var_w.get()
+            kind = self._kind(self.var_b) if self.cur == BLACK else \
+                self._kind(self.var_w)
             self.ai_move(self.cur, kind)
         elif mode == "human_b":
             if self.cur == WHITE:
-                self.ai_move(WHITE, self.var_w.get())
+                self.ai_move(WHITE, self._kind(self.var_w))
         elif mode == "human_w":
             if self.cur == BLACK:
-                self.ai_move(BLACK, self.var_b.get())
+                self.ai_move(BLACK, self._kind(self.var_b))
 
     def ai_move(self, player, kind):
         if self.winner is not None:
